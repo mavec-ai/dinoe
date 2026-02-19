@@ -1,0 +1,20 @@
+[package]
+name = "dinoe-core"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+async-trait = "0.1"
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures-util = "0.3"
+tokio = { workspace = true, features = ["rt-multi-thread", "fs", "macros"] }
+tracing = "0.1"
+chrono = "0.4"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+toml = "0.8"
+md5 = "0.7"
+
+[dev-dependencies]
+tempfile = "3"
