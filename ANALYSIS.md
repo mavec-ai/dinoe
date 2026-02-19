@@ -65,6 +65,15 @@ Configuration is stored in `~/.dinoe/config.toml`. It includes:
 *   Workspace directory
 *   Max iterations and history size
 
+## Why Rust?
+
+Dinoe is built with Rust for several key reasons, distinguishing it from typical Python or Node.js AI agents:
+
+1.  **Speed**: Rust allows for extremely fast startup times (<10ms). This is critical for a CLI tool that is invoked frequently. Python and Node.js runtimes have significant startup overhead.
+2.  **Memory Safety**: Rust provides memory safety guarantees without a garbage collector, preventing common bugs and ensuring reliability.
+3.  **Binary Size**: The resulting binary is tiny (~2.0MB), making it easy to distribute and install without heavy dependencies.
+4.  **Reliability**: The strict type system and compile-time checks ensure that the application is robust and less prone to runtime errors.
+
 ## Strengths
 
 *   **Performance**: Written in Rust, it is fast and memory-efficient.
