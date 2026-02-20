@@ -2,12 +2,13 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use dinoe_core::{agent, config, providers, tools};
 mod onboard;
+mod skills;
 use std::io::Write;
 use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "dinoe")]
-#[command(about = "dinoe - Fast, ultra-lightweight, and memory safe", long_about = None)]
+#[command(about = "dinoe - Fast, ultra-lightweight CLI AI agent", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -19,6 +20,10 @@ enum Commands {
     Chat {
         #[arg(short, long)]
         message: Option<String>,
+    },
+    Skills {
+        #[command(subcommand)]
+        skill_command: skills::SkillsCommands,
     },
 }
 
@@ -42,6 +47,10 @@ async fn main() -> Result<()> {
             })?;
             config::save_config(&onboard_config)?;
         }
+        Commands::Skills { skill_command } => {
+            let config = config::load_config()?;
+            skills::handle_command(skill_command, &config.workspace_dir)?;
+        }
         Commands::Chat { message } => {
             let config = config::load_config()?;
 
@@ -63,22 +72,32 @@ async fn main() -> Result<()> {
                 return Err(e.into());
             }
 
-            if let Err(e) = onboard::ensure_soul_file(&config.workspace_dir) {
-                eprintln!("❌ Error: Could not create SOUL.md: {}", e);
+            if let Err(e) = onboard::ensure_bootstrap_files(&config.workspace_dir) {
+                eprintln!("❌ Error: Could not create bootstrap files: {}", e);
                 return Err(e);
             }
 
             let memory = dinoe_core::memory::create_memory(&config.workspace_dir)?;
-            let context_builder =
-                agent::ContextBuilder::new(&config.workspace_dir).with_memory(memory.clone());
-            let tool_registry = Arc::new(agent::ToolRegistry::new());
-            let provider_arc = Arc::new(provider);
+            let skill_registry =
+                dinoe_core::skills::SkillRegistry::load_from_workspace(&config.workspace_dir)?;
+            let skills = skill_registry.list();
 
-            tool_registry.register(Arc::new(tools::FileReadTool::new(&config.workspace_dir)));
-            tool_registry.register(Arc::new(tools::FileWriteTool::new(&config.workspace_dir)));
-            tool_registry.register(Arc::new(tools::ShellTool::new(&config.workspace_dir)));
-            tool_registry.register(Arc::new(tools::MemoryReadTool::new(memory.clone())));
-            tool_registry.register(Arc::new(tools::MemoryWriteTool::new(memory)));
+            let tool_registry = Arc::new(agent::ToolRegistry::new());
+            let provider: providers::OpenAIProvider = provider;
+            let provider_arc: Arc<dyn dinoe_core::traits::Provider> = Arc::new(provider);
+
+            tool_registry.register(Box::new(tools::FileReadTool::new(&config.workspace_dir)));
+            tool_registry.register(Box::new(tools::FileWriteTool::new(&config.workspace_dir)));
+            tool_registry.register(Box::new(tools::ShellTool::new(&config.workspace_dir)));
+            tool_registry.register(Box::new(tools::MemoryReadTool::new(memory.clone())));
+            tool_registry.register(Box::new(tools::MemoryWriteTool::new(memory.clone())));
+
+            let tool_specs = tool_registry.get_specs();
+
+            let context_builder = agent::ContextBuilder::new(&config.workspace_dir)
+                .with_memory(memory.clone())
+                .with_skills(skills)
+                .with_tool_specs(tool_specs);
 
             let agent_loop =
                 agent::AgentLoop::new(provider_arc.clone(), context_builder, tool_registry)

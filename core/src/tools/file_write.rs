@@ -1,3 +1,4 @@
+use crate::tools::extract_string_arg;
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
@@ -42,17 +43,9 @@ impl Tool for FileWriteTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let path = args
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-
-        let content = args
-            .get("content")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
-
-        let full_path = self.workspace.join(path);
+        let path = extract_string_arg(&args, "path")?;
+        let content = extract_string_arg(&args, "content")?;
+        let full_path = self.workspace.join(&path);
 
         if let Some(parent) = full_path.parent() {
             std::fs::create_dir_all(parent)?;

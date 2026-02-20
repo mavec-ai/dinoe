@@ -1,6 +1,7 @@
 use crate::ChatRequest;
 use crate::agent::{ContextBuilder, ToolRegistry};
-use crate::traits::{ChatMessage, MemoryCategory, Provider};
+use crate::skills::Skill;
+use crate::traits::{ChatMessage, MemoryCategory, Provider, ToolCall};
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -11,6 +12,9 @@ const DEFAULT_MAX_HISTORY: usize = 50;
 const COMPACT_KEEP_RECENT: usize = 20;
 const COMPACTION_MAX_SOURCE_CHARS: usize = 12_000;
 const COMPACTION_MAX_SUMMARY_CHARS: usize = 2_000;
+
+const TOOL_CALL_OPEN_TAGS: &[&str] = &["<tool_call>", "<tool_call>", "<tool_call>"];
+const TOOL_CALL_CLOSE_TAGS: &[&str] = &["</tool_call>", "</tool_call>", "</tool_call>"];
 
 pub struct AgentLoop {
     provider: Arc<dyn Provider>,
@@ -33,6 +37,11 @@ impl AgentLoop {
             max_iterations: 20,
             max_history: DEFAULT_MAX_HISTORY,
         }
+    }
+
+    pub fn with_skills(mut self, skills: Vec<Skill>) -> Self {
+        self.context_builder = self.context_builder.with_skills(skills);
+        self
     }
 
     pub fn with_max_iterations(mut self, max: usize) -> Self {
@@ -101,28 +110,36 @@ impl AgentLoop {
 
             let response = self.provider.chat(request).await?;
 
-            if !response.has_tool_calls() {
-                if let Some(text) = &response.text {
-                    messages.push(ChatMessage::assistant(text.clone()));
-                    self.store_message("assistant", text).await;
-                }
-                if let Some(text) = response.text {
-                    return Ok(text);
-                }
+            let (assistant_text, tool_calls) = if response.has_tool_calls() {
+                (
+                    response.text.clone().unwrap_or_default(),
+                    response.tool_calls.clone(),
+                )
+            } else if let Some(text) = &response.text {
+                let (parsed_text, parsed_calls) = self.parse_tool_calls_fallback(text);
+                (parsed_text, parsed_calls)
+            } else {
                 return Ok("No response from provider".to_string());
+            };
+
+            if tool_calls.is_empty() {
+                if !assistant_text.is_empty() {
+                    messages.push(ChatMessage::assistant(assistant_text.clone()));
+                    self.store_message("assistant", &assistant_text).await;
+                }
+                return Ok(assistant_text);
             }
 
-            let assistant_text = response.text.unwrap_or_default();
             messages.push(ChatMessage::assistant_with_tool_calls(
                 assistant_text.clone(),
-                response.tool_calls.clone(),
+                tool_calls.clone(),
             ));
 
             if !assistant_text.trim().is_empty() {
                 self.store_message("assistant", &assistant_text).await;
             }
 
-            for tool_call in response.tool_calls {
+            for tool_call in tool_calls {
                 let args: serde_json::Value =
                     serde_json::from_str(&tool_call.arguments).map_err(|e| {
                         anyhow::anyhow!(
@@ -242,5 +259,113 @@ impl AgentLoop {
             .text
             .unwrap_or_else(|| self.truncate_transcript(transcript));
         Ok(summary)
+    }
+
+    fn parse_tool_calls_fallback(&self, response: &str) -> (String, Vec<ToolCall>) {
+        let mut text_parts = Vec::new();
+        let mut calls = Vec::new();
+        let mut remaining = response;
+
+        while let Some((start, open_tag)) = self.find_first_tag(remaining, TOOL_CALL_OPEN_TAGS) {
+            let before = &remaining[..start];
+            if !before.trim().is_empty() {
+                text_parts.push(before.trim().to_string());
+            }
+
+            let close_tag = self.matching_tool_call_close_tag(open_tag);
+            let close_tag = match close_tag {
+                Some(tag) => tag,
+                None => break,
+            };
+
+            let after_open = &remaining[start + open_tag.len()..];
+            if let Some(close_idx) = after_open.find(close_tag) {
+                let inner = &after_open[..close_idx];
+                let json_values = self.extract_json_values(inner);
+                for value in json_values {
+                    if let Some(call) = self.parse_tool_call_value(&value) {
+                        calls.push(call);
+                    }
+                }
+
+                remaining = &after_open[close_idx + close_tag.len()..];
+            } else {
+                break;
+            }
+        }
+
+        if !remaining.trim().is_empty() {
+            text_parts.push(remaining.trim().to_string());
+        }
+
+        let text = text_parts.join("\n");
+        (text, calls)
+    }
+
+    fn find_first_tag<'a>(&self, text: &'a str, tags: &'a [&'a str]) -> Option<(usize, &'a str)> {
+        tags.iter()
+            .filter_map(|tag| text.find(tag).map(|idx| (idx, *tag)))
+            .min_by_key(|(idx, _)| *idx)
+    }
+
+    fn matching_tool_call_close_tag(&self, open_tag: &str) -> Option<&'static str> {
+        let idx = TOOL_CALL_OPEN_TAGS.iter().position(|&t| t == open_tag)?;
+        TOOL_CALL_CLOSE_TAGS.get(idx).copied()
+    }
+
+    fn extract_json_values(&self, text: &str) -> Vec<serde_json::Value> {
+        let mut values = Vec::new();
+        let mut depth = 0;
+        let mut start = None;
+        let mut in_string = false;
+        let mut escape_next = false;
+
+        for (i, ch) in text.char_indices() {
+            match ch {
+                '{' if !in_string => {
+                    if depth == 0 {
+                        start = Some(i);
+                    }
+                    depth += 1;
+                }
+                '}' if !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        if let Some(s) = start
+                            && let Ok(value) =
+                                serde_json::from_str::<serde_json::Value>(&text[s..=i])
+                        {
+                            values.push(value);
+                        }
+                        start = None;
+                    }
+                }
+                '"' if !escape_next => {
+                    in_string = !in_string;
+                }
+                '\\' if in_string => {
+                    escape_next = true;
+                }
+                _ => {
+                    escape_next = false;
+                }
+            }
+        }
+
+        values
+    }
+
+    fn parse_tool_call_value(&self, value: &serde_json::Value) -> Option<ToolCall> {
+        let name = value.get("name")?.as_str()?.to_string();
+        let arguments = value.get("arguments")?;
+        let arguments_str = serde_json::to_string(arguments).ok()?;
+        let digest = md5::compute(arguments_str.as_bytes());
+        let id = format!("call_{:x}", digest);
+
+        Some(ToolCall {
+            id,
+            name,
+            arguments: arguments_str,
+        })
     }
 }

@@ -1,3 +1,4 @@
+use crate::tools::{extract_string_arg_opt, extract_usize_arg_opt};
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
@@ -34,16 +35,20 @@ impl Tool for MemoryReadTool {
                     "type": "integer",
                     "description": "Maximum number of results to return (default: 10)"
                 }
-            }
+            },
+            "required": ["query"]
         })
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let query = extract_string_arg_opt(&args, "query", "");
+        let limit = extract_usize_arg_opt(&args, "limit", 10);
 
-        let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+        if query.is_empty() {
+            return Ok(ToolResult::error("Query parameter is required"));
+        }
 
-        match self.memory.recall(query, limit, None).await {
+        match self.memory.recall(&query, limit, None).await {
             Ok(entries) => {
                 if entries.is_empty() {
                     Ok(ToolResult::success(

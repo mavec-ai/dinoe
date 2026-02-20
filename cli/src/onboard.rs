@@ -4,9 +4,61 @@ use dialoguer::{Input, Select};
 use dinoe_core::config::Config;
 use std::path::Path;
 
-pub const DEFAULT_SOUL: &str = r#"# Soul
+const BANNER: &str = r"
+    -------------------------------------
 
-I am dinoe 🦖, a fast, ultra-lightweight, and memory-safe AI assistant.
+    ██████╗ ██╗███╗   ██╗ ██████╗ ███████╗
+    ██╔══██╗██║████╗  ██║██╔═══██╗██╔════╝
+    ██║  ██║██║██╔██╗ ██║██║   ██║█████╗  
+    ██║  ██║██║██║╚██╗██║██║   ██║██╔══╝  
+    ██████╔╝██║██║ ╚████║╚██████╔╝███████╗
+    ╚═════╝ ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝
+
+    -------------------------------------
+";
+
+fn print_step(step: usize, total: usize, title: &str) {
+    println!();
+    println!(
+        "{}",
+        style(format!("[{}/{}] {}", step, total, title))
+            .cyan()
+            .bold()
+    );
+    println!();
+}
+
+fn ensure_file(path: &Path, content: &str) -> Result<bool> {
+    if !path.exists() {
+        std::fs::write(path, content)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+fn create_bootstrap_files(workspace: &Path) -> Result<()> {
+    std::fs::create_dir_all(workspace)?;
+
+    ensure_file(&workspace.join("SOUL.md"), DEFAULT_SOUL)?;
+    ensure_file(&workspace.join("TOOLS.md"), DEFAULT_TOOLS)?;
+    ensure_file(&workspace.join("USER.md"), DEFAULT_USER)?;
+
+    Ok(())
+}
+
+fn init_skills_dir(workspace: &Path) -> Result<()> {
+    dinoe_core::skills::init_skills_dir(workspace)?;
+    Ok(())
+}
+
+pub fn ensure_bootstrap_files(workspace: &Path) -> Result<()> {
+    create_bootstrap_files(workspace)
+}
+
+pub const DEFAULT_SOUL: &str = r#"# SOUL.md — Who You Are
+
+You are dinoe 🦖, a Fast, ultra-lightweight AI Assistant.
 
 ## Core Identity
 
@@ -101,44 +153,75 @@ When encountering errors:
 
 *This file defines dinoe's core personality and behavior patterns. Edit to customize the agent's identity.*"#;
 
-const BANNER: &str = r"
-    -------------------------------------
+pub const DEFAULT_TOOLS: &str = r#"# TOOLS.md — Local Notes
 
-    ██████╗ ██╗███╗   ██╗ ██████╗ ███████╗
-    ██╔══██╗██║████╗  ██║██╔═══██╗██╔════╝
-    ██║  ██║██║██╔██╗ ██║██║   ██║█████╗  
-    ██║  ██║██║██║╚██╗██║██║   ██║██╔══╝  
-    ██████╔╝██║██║ ╚████║╚██████╔╝███████╗
-    ╚═════╝ ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝
+Skills define HOW tools work. This file is for YOUR specifics — the stuff that's unique to your setup.
 
-    Fast. Ultra-Lightweight. Memory Safe. 100% Rust.
+## What Goes Here
 
-    -------------------------------------
-";
+Things like:
+- SSH hosts and aliases
+- Device nicknames
+- Preferred voices for TTS
+- Anything environment-specific
 
-fn print_step(step: usize, total: usize, title: &str) {
-    println!();
-    println!(
-        "{}",
-        style(format!("[{}/{}] {}", step, total, title))
-            .cyan()
-            .bold()
-    );
-    println!();
-}
+## Built-in Tools
 
-fn create_soul_file(workspace: &Path) -> Result<()> {
-    std::fs::create_dir_all(workspace)?;
-    let soul_path = workspace.join("SOUL.md");
-    if !soul_path.exists() {
-        std::fs::write(&soul_path, DEFAULT_SOUL)?;
-    }
-    Ok(())
-}
+- **shell** — Execute terminal commands
+- **file_read** — Read file contents
+- **file_write** — Write or create files
+- **memory_read** — Retrieve information from memory
+- **memory_write** — Store information in memory
 
-pub fn ensure_soul_file(workspace: &Path) -> Result<()> {
-    create_soul_file(workspace)
-}
+## Tips
+
+- Keep this file focused on YOUR environment
+- Don't duplicate tool documentation here (that's in the code)
+- Update as your environment changes
+
+---
+
+*Edit this file to add your local tool preferences and environment-specific notes.*"#;
+
+pub const DEFAULT_USER: &str = r#"# USER.md — Who You're Helping
+
+This file contains information about the user you're helping. Customize it to provide context about their preferences, goals, and working style.
+
+## User Profile
+
+- **Name**: [User's name]
+- **Role**: [Developer / Student / Creator / etc.]
+- **Primary language**: [English / Indonesian / etc.]
+
+## Communication Preferences
+
+- Preferred level of detail: [High-level / Detailed / Just-the-facts]
+- Preferred response style: [Concise / Conversational / Formal]
+- Do they like examples: [Yes / No]
+- Do they like explanations: [Yes / No]
+
+## Working Style
+
+- Do they prefer: [Step-by-step guidance / Autonomy / Mixed]
+- Decision-making: [They decide / Ask first / Suggest options]
+- Error tolerance: [Low / Medium / High]
+
+## Common Topics
+
+List topics they frequently ask about:
+- [Topic 1]
+- [Topic 2]
+- [Topic 3]
+
+## Things to Remember
+
+- [Important preference or habit]
+- [Recurring project or goal]
+- [Anything else that helps you help them better]
+
+---
+
+*Edit this file to provide context about the user you're assisting.*"#;
 
 fn setup_api_key() -> Result<String> {
     let api_key: String = Input::new()
@@ -176,7 +259,7 @@ pub fn run_onboard() -> Result<Config> {
     );
     println!();
 
-    print_step(1, 4, "API Key Setup");
+    print_step(1, 3, "API Key Setup");
     let api_key = setup_api_key()?;
 
     print_step(2, 3, "Model Selection");
@@ -189,17 +272,34 @@ pub fn run_onboard() -> Result<Config> {
     };
 
     print_step(3, 3, "Workspace Setup");
-    if let Err(e) = create_soul_file(&config.workspace_dir) {
+    if let Err(e) = create_bootstrap_files(&config.workspace_dir) {
         eprintln!(
-            "  {} Warning: Could not create SOUL.md: {}",
+            "  {} Warning: Could not create bootstrap files: {}",
             style("!").yellow(),
             e
         );
     } else {
         println!(
-            "  {} SOUL.md created at {}",
+            "  {} Bootstrap files created at {}",
             style("✓").green(),
-            style(config.workspace_dir.join("SOUL.md").display()).cyan()
+            style(config.workspace_dir.display()).cyan()
+        );
+        println!("  {} - SOUL.md", style("  ").dim());
+        println!("  {} - TOOLS.md", style("  ").dim());
+        println!("  {} - USER.md", style("  ").dim());
+    }
+
+    if let Err(e) = init_skills_dir(&config.workspace_dir) {
+        eprintln!(
+            "  {} Warning: Could not create skills directory: {}",
+            style("!").yellow(),
+            e
+        );
+    } else {
+        println!(
+            "  {} Skills directory ready at {}",
+            style("✓").green(),
+            style(config.workspace_dir.join("skills").display()).cyan()
         );
     }
 

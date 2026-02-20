@@ -1,3 +1,4 @@
+use crate::tools::{extract_string_arg, extract_string_arg_opt};
 use crate::traits::{MemoryCategory, Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
@@ -44,28 +45,21 @@ impl Tool for MemoryWriteTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let key = args
-            .get("key")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'key' parameter"))?;
+        let key = extract_string_arg(&args, "key")?;
+        let content = extract_string_arg(&args, "content")?;
+        let category_str = extract_string_arg_opt(&args, "category", "core");
 
-        let content = args
-            .get("content")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
+        if category_str.is_empty() {
+            return Ok(ToolResult::error("Category cannot be empty"));
+        }
 
-        let category_str = args
-            .get("category")
-            .and_then(|v| v.as_str())
-            .unwrap_or("core");
-
-        let category = match category_str {
+        let category = match category_str.as_str() {
             "core" => MemoryCategory::Core,
             "daily" => MemoryCategory::Daily,
-            _ => MemoryCategory::Custom(category_str.to_string()),
+            _ => MemoryCategory::Custom(category_str),
         };
 
-        match self.memory.store(key, content, category, None).await {
+        match self.memory.store(&key, &content, category, None).await {
             Ok(()) => Ok(ToolResult::success(format!(
                 "Stored memory with key: {}",
                 key

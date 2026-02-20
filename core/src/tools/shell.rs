@@ -1,3 +1,4 @@
+use crate::tools::extract_string_arg;
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
@@ -39,14 +40,11 @@ impl Tool for ShellTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let command = args
-            .get("command")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
+        let command = extract_string_arg(&args, "command")?;
 
         let output = Command::new("sh")
             .arg("-c")
-            .arg(command)
+            .arg(&command)
             .current_dir(&self.workspace)
             .output();
 

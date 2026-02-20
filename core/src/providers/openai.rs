@@ -147,7 +147,7 @@ impl OpenAIProvider {
                 function: OpenAIToolFunction {
                     name: t.name.clone(),
                     description: t.description.clone(),
-                    parameters: t.parameters.clone(),
+                    parameters: t.parameters_schema.clone(),
                 },
             })
             .collect()

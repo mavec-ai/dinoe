@@ -30,7 +30,7 @@ impl ToolResult {
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
-    pub parameters: serde_json::Value,
+    pub parameters_schema: serde_json::Value,
 }
 
 #[async_trait]
@@ -47,7 +47,7 @@ pub trait Tool: Send + Sync {
         ToolSpec {
             name: self.name().to_string(),
             description: self.description().to_string(),
-            parameters: self.parameters_schema(),
+            parameters_schema: self.parameters_schema(),
         }
     }
 }

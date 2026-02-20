@@ -1,3 +1,4 @@
+use crate::tools::extract_string_arg;
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
@@ -38,12 +39,8 @@ impl Tool for FileReadTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let path = args
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-
-        let full_path = self.workspace.join(path);
+        let path = extract_string_arg(&args, "path")?;
+        let full_path = self.workspace.join(&path);
 
         match std::fs::read_to_string(&full_path) {
             Ok(content) => Ok(ToolResult::success(content)),
