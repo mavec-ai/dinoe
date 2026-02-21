@@ -1,16 +1,19 @@
 # Dinoe
 
-Fast, ultra-lightweight CLI AI agent with tool execution and skills.
+Fast, ultra-lightweight CLI AI agent with tool execution, skills, and multi-provider support.
 
 ## Features
 
-- **Ultra-fast** - Starts in under 10ms
-- **Tiny binary** - Only 2.4MB
+- **Ultra-fast** - Starts in ~4ms
+- **Tiny binary** - Only 2.2MB
 - **Memory-safe** - Built with Rust
+- **Multi-provider** - OpenAI, OpenRouter, Ollama, Z.AI (GLM)
+- **Streaming** - Real-time response streaming
+- **Smart loop detection** - Prevents infinite tool loops
 - **Tool execution** - File operations, shell commands, memory management
 - **Skills system** - Extensible with custom skills
 - **Daily logs** - Automatic daily memory tracking in Markdown
-- **Zero config** - Simple onboarding, ready to use
+- **Zero config** - Simple 5-step onboarding wizard
 
 ## Installation
 
@@ -23,23 +26,18 @@ cargo install --git https://github.com/mavec-ai/dinoe
 Or build from source:
 
 ```bash
+git clone https://github.com/mavec-ai/dinoe
+cd dinoe
 cargo build --release
 
-# Run the binary
 ./target/release/dinoe
 ```
 
 ## Quick Start
 
 ```bash
-# First time setup
 dinoe onboard
-
-# Chat with AI
 dinoe chat
-
-# Send single message
-dinoe chat -m "Hello, Dinoe!"
 ```
 
 ## Usage
@@ -50,10 +48,12 @@ dinoe chat -m "Hello, Dinoe!"
 dinoe onboard
 ```
 
-You'll be prompted for:
-- OpenAI API key
-- Model (default: gpt-4o)
-- Workspace directory (default: ./workspace)
+5-step wizard:
+1. Select provider (OpenAI, OpenRouter, Ollama, Z.AI)
+2. Enter API key (skipped for Ollama)
+3. Select endpoint (for Ollama/Z.AI)
+4. Select model (live fetch for Ollama/OpenRouter)
+5. Confirm configuration
 
 ### Interactive Chat
 
@@ -61,55 +61,78 @@ You'll be prompted for:
 dinoe chat
 ```
 
-Type your messages and press Enter. Press Ctrl+D to exit.
+Type messages and press Enter. Press Ctrl+D to exit.
 
 ### Single Message
 
 ```bash
-dinoe chat -m "What files are in the current directory?"
+dinoe chat -m "Hello, Dinoe!"
 ```
 
-### Using Tools
-
-Dinoe can automatically use tools when needed:
+### Skills Management
 
 ```bash
-dinoe chat -m "Read the README.md file"
-dinoe chat -m "List all Rust files"
-dinoe chat -m "What's the current date?"
+dinoe skills list
+dinoe skills install https://github.com/user/my-skill
+dinoe skills install /path/to/local/skill
+dinoe skills remove my-skill
 ```
 
-### Skills
+Or create manually:
 
-Skills provide additional functionality. Create skills in your workspace:
-
-```
-workspace/skills/
-├── my-skill/
-│   └── SKILL.md
+```bash
+mkdir -p ~/.dinoe/workspace/skills/my-skill
+echo '# My Skill' > ~/.dinoe/workspace/skills/my-skill/SKILL.md
 ```
 
-Skills are automatically loaded and available during chat.
+## Creating Skills
+
+Create a skill directory with a `SKILL.md` file:
+
+```bash
+mkdir -p ~/.dinoe/workspace/skills/code-reviewer
+cat > ~/.dinoe/workspace/skills/code-reviewer/SKILL.md << 'EOF'
+# Code Reviewer
+
+You are a code reviewer. When asked to review code:
+- Check for bugs and edge cases
+- Suggest improvements
+- Follow best practices
+EOF
+```
 
 ## Configuration
 
-Config is stored at `~/.dinoe/config.toml`:
+Config stored at `~/.dinoe/config.toml`:
 
 ```toml
-api_key = "your-openai-api-key"
+provider = "openai"
+api_key = "sk-..."
 model = "gpt-4o"
 max_iterations = 20
 max_history = 50
+temperature = 1.0
+
+[stream]
+enabled = true
 ```
 
-## Memory System
+## Workspace Structure
 
-Dinoe stores conversations in Markdown files:
-
-- **Core memory** - `workspace/MEMORY.md`
-- **Daily logs** - `workspace/memory/YYYY-MM-DD.md`
-
-Memory is automatically indexed and retrieved for context-aware responses.
+```
+~/.dinoe/
+├── config.toml          # Configuration
+└── workspace/
+    ├── SOUL.md          # Agent personality
+    ├── TOOLS.md         # Tool usage guidelines
+    ├── USER.md          # User preferences
+    ├── memory/          # Memory & logs
+    │   ├── MEMORY.md    # Long-term memory
+    │   └── 2025-02-22.md
+    └── skills/          # Custom skills
+        └── my-skill/
+            └── SKILL.md
+```
 
 ## Built-in Tools
 
@@ -121,42 +144,34 @@ Memory is automatically indexed and retrieved for context-aware responses.
 | `memory_read` | Search memory by keyword |
 | `memory_write` | Store information to memory |
 
-## Creating Skills
-
-Skills are Markdown files that provide instructions to the AI:
-
-1. Create a directory in `workspace/skills/your-skill/`
-2. Add a `SKILL.md` file with instructions
-3. Dinoe automatically loads it
-
-Example `workspace/skills/code-reviewer/SKILL.md`:
-
-```markdown
-# Code Reviewer
-
-You are a code reviewer. When asked to review code:
-- Check for bugs and edge cases
-- Suggest improvements
-- Follow Rust best practices
-```
-
 ## Architecture
 
 ```
 dinoe/
-├── core/          # Core library
-│   ├── agent/     # Agent loop, context, registry
-│   ├── providers/ # OpenAI integration
-│   ├── tools/     # Built-in tools
-│   ├── skills/    # Skill system
-│   └── memory/    # Memory management
-└── cli/           # CLI application
-    └── src/
-        ├── main.rs
-        ├── onboard.rs
-        └── skills.rs
+├── core/
+│   ├── agent/       # Agent loop, context, registry
+│   ├── providers/   # OpenAI, GLM, Ollama, OpenRouter
+│   ├── tools/       # Built-in tools
+│   ├── skills/      # Skill system
+│   ├── memory/      # Memory management
+│   ├── config/      # Configuration
+│   └── traits/      # Core traits
+└── cli/
+    ├── main.rs      # Entry point
+    ├── onboard.rs   # Onboarding wizard
+    ├── skills.rs    # Skills CLI
+    └── templates.rs # Default templates
 ```
+
+## Performance
+
+| Metric | Value |
+|--------|-------|
+| Binary size | 2.2 MB |
+| Cold start | ~4 ms |
+| Peak memory | ~2 MB |
+| Architecture | arm64 / x86_64 |
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License

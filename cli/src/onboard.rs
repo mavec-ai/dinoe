@@ -2,7 +2,11 @@ use anyhow::{Context, Result};
 use console::style;
 use dialoguer::{Input, Select};
 use dinoe_core::config::Config;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::templates::{DEFAULT_SOUL, DEFAULT_TOOLS, DEFAULT_USER};
 
 const BANNER: &str = r"
     -------------------------------------
@@ -56,176 +60,39 @@ pub fn ensure_bootstrap_files(workspace: &Path) -> Result<()> {
     create_bootstrap_files(workspace)
 }
 
-pub const DEFAULT_SOUL: &str = r#"# SOUL.md — Who You Are
+fn setup_provider() -> Result<String> {
+    let providers = [
+        ("openai", "OpenAI"),
+        ("openrouter", "OpenRouter"),
+        ("ollama", "Ollama"),
+        ("zai", "Z.AI (GLM)"),
+    ];
 
-You are dinoe 🦖, a Fast, ultra-lightweight AI Assistant.
+    let provider_labels: Vec<&str> = providers.iter().map(|(_, label)| *label).collect();
 
-## Core Identity
+    let selection = Select::new()
+        .with_prompt("Select your AI provider")
+        .items(&provider_labels)
+        .default(0)
+        .interact()
+        .context("Failed to select provider")?;
 
-- **Name**: dinoe
-- **Purpose**: Help users accomplish tasks efficiently with code, files, and knowledge
-- **Built with**: Rust (100% memory safe, fast, and reliable)
+    Ok(providers[selection].0.to_string())
+}
 
-## Personality
+fn setup_api_key(provider: &str) -> Result<String> {
+    if provider == "ollama" {
+        return Ok(String::new());
+    }
 
-- Helpful and friendly
-- Concise and to the point
-- Technical and precise
-- Curious and eager to learn
-- Practical and action-oriented
+    let prompt = match provider {
+        "openrouter" => "Enter your OpenRouter API Key",
+        "zai" => "Enter your Z.AI API Key",
+        _ => "Enter your OpenAI API key",
+    };
 
-## Values
-
-- **Accuracy over speed**: Get it right the first time
-- **User privacy and safety**: Never expose sensitive information
-- **Transparency in actions**: Always explain what you're doing before using tools
-- **Efficiency**: Use the most appropriate tool for the task
-- **Code quality**: Write clean, maintainable, and idiomatic code
-
-## Communication Style
-
-- Be clear and direct
-- Explain reasoning when helpful, but don't over-explain obvious things
-- Ask clarifying questions when the request is ambiguous
-- Use code blocks for code and file paths
-- Provide concrete examples when helpful
-- Admit when you don't know something
-
-## Problem-Solving Approach
-
-1. **Understand**: Clarify the user's intent if needed
-2. **Plan**: Briefly outline the approach before taking action
-3. **Execute**: Use tools efficiently to accomplish the task
-4. **Verify**: Check that the solution works as expected
-5. **Learn**: Remember important information in memory
-
-## When Using Tools
-
-- **Before using tools**: Briefly explain what you're about to do
-- **While using tools**: Provide updates on progress for long-running operations
-- **After using tools**: Summarize results and any important findings
-
-## Tool Preferences
-
-- **File operations**: Use file tools to read, write, and edit files
-- **Shell commands**: Use shell for system operations, git commands, etc.
-- **Memory**: Store important information in MEMORY.md for long-term recall
-
-## Code Conventions
-
-When writing code:
-- Follow existing code style and conventions in the project
-- Use idiomatic patterns for the language
-- Add comments only when the code is unclear
-- Prefer simple solutions over complex ones
-- Consider performance and memory efficiency (especially in Rust)
-
-## Memory Management
-
-Store information in memory when:
-- User preferences are learned
-- Important project context is established
-- Repeated questions or topics come up
-- Critical decisions are made
-
-Don't store:
-- Temporary or one-off information
-- Transient state
-- Information already in files
-
-## Handling Errors
-
-When encountering errors:
-- Read the error message carefully
-- Identify the root cause
-- Propose a specific solution
-- If unsure, explain what you understand and ask for guidance
-- Never proceed without understanding the error
-
-## Continuous Improvement
-
-- Learn from user feedback
-- Adapt to user preferences over time
-- Improve explanations based on user responses
-- Remember successful patterns and approaches
-
----
-
-*This file defines dinoe's core personality and behavior patterns. Edit to customize the agent's identity.*"#;
-
-pub const DEFAULT_TOOLS: &str = r#"# TOOLS.md — Local Notes
-
-Skills define HOW tools work. This file is for YOUR specifics — the stuff that's unique to your setup.
-
-## What Goes Here
-
-Things like:
-- SSH hosts and aliases
-- Device nicknames
-- Preferred voices for TTS
-- Anything environment-specific
-
-## Built-in Tools
-
-- **shell** — Execute terminal commands
-- **file_read** — Read file contents
-- **file_write** — Write or create files
-- **memory_read** — Retrieve information from memory
-- **memory_write** — Store information in memory
-
-## Tips
-
-- Keep this file focused on YOUR environment
-- Don't duplicate tool documentation here (that's in the code)
-- Update as your environment changes
-
----
-
-*Edit this file to add your local tool preferences and environment-specific notes.*"#;
-
-pub const DEFAULT_USER: &str = r#"# USER.md — Who You're Helping
-
-This file contains information about the user you're helping. Customize it to provide context about their preferences, goals, and working style.
-
-## User Profile
-
-- **Name**: [User's name]
-- **Role**: [Developer / Student / Creator / etc.]
-- **Primary language**: [English / Indonesian / etc.]
-
-## Communication Preferences
-
-- Preferred level of detail: [High-level / Detailed / Just-the-facts]
-- Preferred response style: [Concise / Conversational / Formal]
-- Do they like examples: [Yes / No]
-- Do they like explanations: [Yes / No]
-
-## Working Style
-
-- Do they prefer: [Step-by-step guidance / Autonomy / Mixed]
-- Decision-making: [They decide / Ask first / Suggest options]
-- Error tolerance: [Low / Medium / High]
-
-## Common Topics
-
-List topics they frequently ask about:
-- [Topic 1]
-- [Topic 2]
-- [Topic 3]
-
-## Things to Remember
-
-- [Important preference or habit]
-- [Recurring project or goal]
-- [Anything else that helps you help them better]
-
----
-
-*Edit this file to provide context about the user you're assisting.*"#;
-
-fn setup_api_key() -> Result<String> {
     let api_key: String = Input::new()
-        .with_prompt("Enter your OpenAI API key")
+        .with_prompt(prompt)
         .interact_text()
         .context("Failed to read API key")?;
 
@@ -236,9 +103,210 @@ fn setup_api_key() -> Result<String> {
     Ok(api_key)
 }
 
-fn setup_model() -> Result<String> {
-    let models = vec!["gpt-5", "gpt-5-mini", "gpt-4o", "gpt-4o-mini"];
+const MODEL_CACHE_TTL_SECS: u64 = 12 * 60 * 60;
+const MODEL_PREVIEW_LIMIT: usize = 20;
+const CUSTOM_MODEL_SENTINEL: &str = "__custom__";
 
+#[derive(Serialize, Deserialize)]
+struct ModelCache {
+    timestamp: u64,
+    models: Vec<String>,
+}
+
+fn get_cache_path() -> std::path::PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("dinoe")
+        .join("models_cache.json")
+}
+
+fn load_cached_models(provider: &str) -> Option<Vec<String>> {
+    let cache_path = get_cache_path().join(format!("{}_models.json", provider));
+    let content = std::fs::read_to_string(&cache_path).ok()?;
+    let cache: ModelCache = serde_json::from_str(&content).ok()?;
+    
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    
+    if now - cache.timestamp < MODEL_CACHE_TTL_SECS {
+        Some(cache.models)
+    } else {
+        None
+    }
+}
+
+fn save_cached_models(provider: &str, models: &[String]) {
+    let cache_dir = get_cache_path();
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        eprintln!("{} Warning: Could not create cache dir: {}", style("!").yellow(), e);
+        return;
+    }
+    
+    let cache = ModelCache {
+        timestamp: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        models: models.to_vec(),
+    };
+    
+    let cache_path = cache_dir.join(format!("{}_models.json", provider));
+    if let Err(e) = std::fs::write(&cache_path, serde_json::to_string_pretty(&cache).unwrap_or_default()) {
+        eprintln!("{} Warning: Could not save cache: {}", style("!").yellow(), e);
+    }
+}
+
+fn fetch_openrouter_models() -> Result<Vec<String>> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .context("Failed to build HTTP client")?;
+    
+    let response = client
+        .get("https://openrouter.ai/api/v1/models")
+        .send()
+        .context("Failed to fetch OpenRouter models")?;
+    
+    let json: serde_json::Value = response
+        .json()
+        .context("Failed to parse OpenRouter response")?;
+    
+    let mut models: Vec<String> = json
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    
+    models.sort();
+    Ok(models)
+}
+
+fn fetch_ollama_models(base_url: &str) -> Result<Vec<String>> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .context("Failed to build HTTP client")?;
+    
+    let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+    let response = client
+        .get(&url)
+        .send()
+        .context("Failed to fetch Ollama models")?;
+    
+    let json: serde_json::Value = response
+        .json()
+        .context("Failed to parse Ollama response")?;
+    
+    let mut models: Vec<String> = json
+        .get("models")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    
+    models.sort();
+    Ok(models)
+}
+
+fn get_curated_models(provider: &str) -> Vec<String> {
+    match provider {
+        "openrouter" => vec![
+            "anthropic/claude-sonnet-4".into(),
+            "anthropic/claude-3.5-sonnet".into(),
+            "openai/gpt-4o".into(),
+            "google/gemini-2.0-flash-exp".into(),
+            "meta-llama/llama-3.3-70b-instruct".into(),
+        ],
+        "ollama" => vec![
+            "llama3.2".into(),
+            "llama3.1".into(),
+            "mistral".into(),
+            "codellama".into(),
+            "qwen2.5".into(),
+        ],
+        "zai" => vec!["glm-5".into(), "glm-4.7".into()],
+        _ => vec![
+            "gpt-5".into(),
+            "gpt-5-mini".into(),
+            "gpt-4o".into(),
+            "gpt-4o-mini".into(),
+        ],
+    }
+}
+
+fn get_live_models(provider: &str, ollama_url: Option<&str>) -> Option<Vec<String>> {
+    match provider {
+        "openrouter" => {
+            println!("{} Fetching models from OpenRouter...", style("→").cyan());
+            match fetch_openrouter_models() {
+                Ok(models) if !models.is_empty() => {
+                    println!("{} Found {} models", style("✓").green(), models.len());
+                    Some(models)
+                }
+                Ok(_) => {
+                    println!("{} No models found, using defaults", style("!").yellow());
+                    None
+                }
+                Err(e) => {
+                    println!("{} Fetch failed: {}, using defaults", style("!").yellow(), e);
+                    None
+                }
+            }
+        }
+        "ollama" => {
+            let url = ollama_url.unwrap_or("http://localhost:11434");
+            println!("{} Fetching models from Ollama ({})...", style("→").cyan(), url);
+            match fetch_ollama_models(url) {
+                Ok(models) if !models.is_empty() => {
+                    println!("{} Found {} models", style("✓").green(), models.len());
+                    Some(models)
+                }
+                Ok(_) => {
+                    println!("{} No models found, using defaults", style("!").yellow());
+                    None
+                }
+                Err(e) => {
+                    println!("{} Fetch failed: {}, using defaults", style("!").yellow(), e);
+                    None
+                }
+            }
+        }
+        _ => None,
+    }
+}
+
+fn setup_model_with_ollama_url(provider: &str, ollama_url: Option<&str>) -> Result<String> {
+    let cached = load_cached_models(provider);
+    let mut models = if let Some(cached) = cached {
+        println!("{} Using cached models ({} available)", style("✓").green(), cached.len());
+        cached
+    } else if let Some(live) = get_live_models(provider, ollama_url) {
+        save_cached_models(provider, &live);
+        live
+    } else {
+        get_curated_models(provider)
+    };
+
+    if models.len() > MODEL_PREVIEW_LIMIT {
+        println!();
+        println!("  {} Models (showing first {}):", style("-").dim(), MODEL_PREVIEW_LIMIT);
+        for m in models.iter().take(MODEL_PREVIEW_LIMIT) {
+            println!("    {} {}", style("-").dim(), m);
+        }
+        println!("    {} ... and {} more", style("-").dim(), models.len() - MODEL_PREVIEW_LIMIT);
+    }
+
+    models.push(CUSTOM_MODEL_SENTINEL.to_string());
+    
     let selection = Select::new()
         .with_prompt("Select your model")
         .items(&models)
@@ -246,7 +314,57 @@ fn setup_model() -> Result<String> {
         .interact()
         .context("Failed to select model")?;
 
-    Ok(models[selection].to_string())
+    if models[selection] == CUSTOM_MODEL_SENTINEL {
+        let custom: String = Input::new()
+            .with_prompt("Enter model name")
+            .interact_text()
+            .context("Failed to read model name")?;
+        Ok(custom)
+    } else {
+        Ok(models[selection].clone())
+    }
+}
+
+fn setup_endpoint(provider: &str) -> Result<String> {
+    match provider {
+        "ollama" => {
+            let default_url = "http://localhost:11434";
+            let custom: bool = dialoguer::Confirm::new()
+                .with_prompt("Use custom Ollama URL? (default: http://localhost:11434)")
+                .default(false)
+                .interact()
+                .context("Failed to get custom URL preference")?;
+
+            if custom {
+                let url: String = Input::new()
+                    .with_prompt("Enter Ollama base URL")
+                    .default(default_url.to_string())
+                    .interact_text()
+                    .context("Failed to read URL")?;
+                Ok(url)
+            } else {
+                Ok(default_url.to_string())
+            }
+        }
+        "zai" => {
+            let endpoints = [
+                ("coding", "https://api.z.ai/api/coding/paas/v4 (GLM Coding)"),
+                ("general", "https://api.z.ai/api/paas/v4"),
+            ];
+
+            let endpoint_labels: Vec<&str> = endpoints.iter().map(|(_, label)| *label).collect();
+
+            let selection = Select::new()
+                .with_prompt("Select Z.AI endpoint")
+                .items(&endpoint_labels)
+                .default(0)
+                .interact()
+                .context("Failed to select endpoint")?;
+
+            Ok(endpoints[selection].0.to_string())
+        }
+        _ => Ok(String::new()),
+    }
 }
 
 pub fn run_onboard() -> Result<Config> {
@@ -259,19 +377,49 @@ pub fn run_onboard() -> Result<Config> {
     );
     println!();
 
-    print_step(1, 3, "API Key Setup");
-    let api_key = setup_api_key()?;
+    print_step(1, 5, "Provider Selection");
+    let provider = setup_provider()?;
 
-    print_step(2, 3, "Model Selection");
-    let model = setup_model()?;
+    print_step(2, 5, "API Key Setup");
+    let api_key = setup_api_key(&provider)?;
+
+    print_step(3, 5, "Endpoint Selection");
+    let endpoint = setup_endpoint(&provider)?;
+    let ollama_url = if provider == "ollama" {
+        Some(if endpoint.is_empty() { "http://localhost:11434".to_string() } else { endpoint.clone() })
+    } else {
+        None
+    };
+    let base_url = if endpoint.is_empty() {
+        match provider.as_str() {
+            "openai" => Some("https://api.openai.com/v1".to_string()),
+            "openrouter" => Some("https://openrouter.ai/api/v1".to_string()),
+            _ => None,
+        }
+    } else {
+        match provider.as_str() {
+            "ollama" => Some(endpoint.clone()),
+            "zai" => Some(match endpoint.as_str() {
+                "coding" => "https://api.z.ai/api/coding/paas/v4".to_string(),
+                "general" => "https://api.z.ai/api/paas/v4".to_string(),
+                _ => String::new(),
+            }),
+            _ => Some(endpoint.clone()),
+        }
+    };
+
+    print_step(4, 5, "Model Selection");
+    let model = setup_model_with_ollama_url(&provider, ollama_url.as_deref())?;
 
     let config = Config {
         api_key,
         model,
+        provider: Some(provider),
+        base_url,
         ..Default::default()
     };
 
-    print_step(3, 3, "Workspace Setup");
+    print_step(5, 5, "Workspace Setup");
     if let Err(e) = create_bootstrap_files(&config.workspace_dir) {
         eprintln!(
             "  {} Warning: Could not create bootstrap files: {}",

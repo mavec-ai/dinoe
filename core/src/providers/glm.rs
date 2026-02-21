@@ -2,81 +2,84 @@ use crate::traits::{ChatMessage, ChatResponse, Provider, ToolCall, ToolSpec};
 use crate::{ChatRequest, ProviderEvent};
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream::BoxStream};
+use ring::hmac;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_stream::wrappers::ReceiverStream;
 
 #[derive(Debug, Serialize)]
-struct OpenAIRequest<'a> {
+struct GlmRequest<'a> {
     model: String,
-    messages: Vec<OpenAIMessage<'a>>,
-    tools: Option<Vec<OpenAITool>>,
+    messages: Vec<GlmMessage<'a>>,
+    tools: Option<Vec<GlmTool>>,
     temperature: f64,
     stream: bool,
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIMessage<'a> {
+struct GlmMessage<'a> {
     role: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<OpenAIToolCallRequest<'a>>>,
+    tool_calls: Option<Vec<GlmToolCallRequest<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<&'a str>,
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIToolCallRequest<'a> {
+struct GlmToolCallRequest<'a> {
     id: &'a str,
     r#type: &'a str,
-    function: OpenAIFunctionRequest<'a>,
+    function: GlmFunctionRequest<'a>,
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIFunctionRequest<'a> {
+struct GlmFunctionRequest<'a> {
     name: &'a str,
     arguments: &'a str,
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAITool {
+struct GlmTool {
     r#type: String,
-    function: OpenAIToolFunction,
+    function: GlmToolFunction,
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIToolFunction {
+struct GlmToolFunction {
     name: String,
     description: String,
     parameters: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAIResponse {
-    choices: Vec<OpenAIChoice>,
+struct GlmResponse {
+    choices: Vec<GlmChoice>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAIChoice {
-    message: OpenAIResponseMessage,
+struct GlmChoice {
+    message: GlmResponseMessage,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAIResponseMessage {
+struct GlmResponseMessage {
     content: Option<String>,
     #[serde(default)]
     reasoning_content: Option<String>,
-    tool_calls: Option<Vec<OpenAIToolCall>>,
+    tool_calls: Option<Vec<GlmToolCall>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAIToolCall {
+struct GlmToolCall {
     id: String,
-    function: OpenAIFunction,
+    function: GlmFunction,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAIFunction {
+struct GlmFunction {
     name: String,
     arguments: String,
 }
@@ -116,14 +119,16 @@ struct StreamFunction {
     arguments: Option<String>,
 }
 
-pub struct OpenAIProvider {
+pub struct GlmProvider {
     client: reqwest::Client,
-    api_key: String,
+    api_key_id: String,
+    api_key_secret: String,
     model: String,
     base_url: String,
+    token_cache: Mutex<Option<(String, u64)>>,
 }
 
-impl OpenAIProvider {
+impl GlmProvider {
     pub fn new(api_key: impl Into<String>) -> Self {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
@@ -131,11 +136,19 @@ impl OpenAIProvider {
             .build()
             .unwrap_or_default();
 
+        let api_key = api_key.into();
+        let (id, secret) = api_key
+            .split_once('.')
+            .map(|(id, secret)| (id.to_string(), secret.to_string()))
+            .unwrap_or_default();
+
         Self {
             client,
-            api_key: api_key.into(),
-            model: "gpt-4o".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
+            api_key_id: id,
+            api_key_secret: secret,
+            model: "glm-4.7".to_string(),
+            base_url: "https://api.z.ai/api/paas/v4".to_string(),
+            token_cache: Mutex::new(None),
         }
     }
 
@@ -149,17 +162,91 @@ impl OpenAIProvider {
         self
     }
 
-    fn convert_messages<'a>(&self, messages: &'a [ChatMessage]) -> Vec<OpenAIMessage<'a>> {
+    fn base64url_encode_bytes(data: &[u8]) -> String {
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut result = String::new();
+        let mut i = 0;
+        while i < data.len() {
+            let b0 = data[i] as u32;
+            let b1 = if i + 1 < data.len() { data[i + 1] as u32 } else { 0 };
+            let b2 = if i + 2 < data.len() { data[i + 2] as u32 } else { 0 };
+            let triple = (b0 << 16) | (b1 << 8) | b2;
+
+            result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+            result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+
+            if i + 1 < data.len() {
+                result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+            }
+            if i + 2 < data.len() {
+                result.push(CHARS[(triple & 0x3F) as usize] as char);
+            }
+
+            i += 3;
+        }
+
+        result.replace('+', "-").replace('/', "_")
+    }
+
+    fn base64url_encode_str(s: &str) -> String {
+        Self::base64url_encode_bytes(s.as_bytes())
+    }
+
+    fn generate_token(&self) -> anyhow::Result<String> {
+        if self.api_key_id.is_empty() || self.api_key_secret.is_empty() {
+            anyhow::bail!(
+                "GLM API key not set or invalid format. Expected 'id.secret'. \
+                 Run `dinoe onboard` or set GLM_API_KEY env var."
+            );
+        }
+
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_millis() as u64;
+
+        if let Ok(cache) = self.token_cache.lock()
+            && let Some((ref token, expiry)) = *cache
+            && now_ms < expiry
+        {
+            return Ok(token.clone());
+        }
+
+        let exp_ms = now_ms + 210_000;
+
+        let header_json = r#"{"alg":"HS256","typ":"JWT","sign_type":"SIGN"}"#;
+        let header_b64 = Self::base64url_encode_str(header_json);
+
+        let payload_json = format!(
+            r#"{{"api_key":"{}","exp":{},"timestamp":{}}}"#,
+            self.api_key_id, exp_ms, now_ms
+        );
+        let payload_b64 = Self::base64url_encode_str(&payload_json);
+
+        let signing_input = format!("{header_b64}.{payload_b64}");
+        let key = hmac::Key::new(hmac::HMAC_SHA256, self.api_key_secret.as_bytes());
+        let signature = hmac::sign(&key, signing_input.as_bytes());
+        let sig_b64 = Self::base64url_encode_bytes(signature.as_ref());
+
+        let token = format!("{signing_input}.{sig_b64}");
+
+        if let Ok(mut cache) = self.token_cache.lock() {
+            *cache = Some((token.clone(), now_ms + 180_000));
+        }
+
+        Ok(token)
+    }
+
+    fn convert_messages<'a>(&self, messages: &'a [ChatMessage]) -> Vec<GlmMessage<'a>> {
         messages
             .iter()
             .map(|m| {
                 let tool_calls = m.tool_calls.as_ref().map(|tool_calls| {
                     tool_calls
                         .iter()
-                        .map(|tc| OpenAIToolCallRequest {
+                        .map(|tc| GlmToolCallRequest {
                             id: &tc.id,
                             r#type: "function",
-                            function: OpenAIFunctionRequest {
+                            function: GlmFunctionRequest {
                                 name: &tc.name,
                                 arguments: &tc.arguments,
                             },
@@ -169,7 +256,7 @@ impl OpenAIProvider {
 
                 let content = Some(m.content.as_str());
 
-                OpenAIMessage {
+                GlmMessage {
                     role: &m.role,
                     content,
                     tool_calls,
@@ -179,12 +266,12 @@ impl OpenAIProvider {
             .collect()
     }
 
-    fn convert_tools(&self, tools: &[ToolSpec]) -> Vec<OpenAITool> {
+    fn convert_tools(&self, tools: &[ToolSpec]) -> Vec<GlmTool> {
         tools
             .iter()
-            .map(|t| OpenAITool {
+            .map(|t| GlmTool {
                 r#type: "function".to_string(),
-                function: OpenAIToolFunction {
+                function: GlmToolFunction {
                     name: t.name.clone(),
                     description: t.description.clone(),
                     parameters: t.parameters_schema.clone(),
@@ -195,14 +282,16 @@ impl OpenAIProvider {
 }
 
 #[async_trait]
-impl Provider for OpenAIProvider {
+impl Provider for GlmProvider {
     async fn chat(
         &self,
         request: ChatRequest<'_>,
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<ChatResponse> {
-        let openai_request = OpenAIRequest {
+        let token = self.generate_token()?;
+
+        let glm_request = GlmRequest {
             model: model.to_string(),
             messages: self.convert_messages(request.messages),
             tools: request.tools.map(|t| self.convert_tools(t)),
@@ -213,9 +302,9 @@ impl Provider for OpenAIProvider {
         let response = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
-            .json(&openai_request)
+            .json(&glm_request)
             .send()
             .await?;
 
@@ -223,15 +312,15 @@ impl Provider for OpenAIProvider {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(anyhow::anyhow!(
-                "OpenAI API error {}: {}",
+                "GLM API error {}: {}",
                 status,
                 error_text
             ));
         }
 
-        let openai_response: OpenAIResponse = response.json().await?;
+        let glm_response: GlmResponse = response.json().await?;
 
-        let choice = openai_response
+        let choice = glm_response
             .choices
             .first()
             .ok_or_else(|| anyhow::anyhow!("No choices in response"))?;
@@ -286,7 +375,9 @@ impl Provider for OpenAIProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<BoxStream<'static, ProviderEvent>> {
-        let openai_request = OpenAIRequest {
+        let token = self.generate_token()?;
+
+        let glm_request = GlmRequest {
             model: model.to_string(),
             messages: self.convert_messages(request.messages),
             tools: request.tools.map(|t| self.convert_tools(t)),
@@ -297,9 +388,9 @@ impl Provider for OpenAIProvider {
         let response = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
-            .json(&openai_request)
+            .json(&glm_request)
             .send()
             .await?;
 
@@ -307,7 +398,7 @@ impl Provider for OpenAIProvider {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
             return Err(anyhow::anyhow!(
-                "OpenAI API error {}: {}",
+                "GLM API error {}: {}",
                 status,
                 error_text
             ));
@@ -330,12 +421,10 @@ impl Provider for OpenAIProvider {
                             while let Some(pos) = buffer.find('\n') {
                                 let line: String = buffer.drain(..=pos).collect();
 
-                                if let Some(event) =
-                                    parse_sse_line(&line, &mut pending_tool_calls)
-                                    && tx.send(event).await.is_err()
-                                {
-                                    return;
-                                }
+                                if let Some(event) = parse_sse_line(&line, &mut pending_tool_calls)
+                                    && tx.send(event).await.is_err() {
+                                        return;
+                                    }
                             }
                         }
                     }

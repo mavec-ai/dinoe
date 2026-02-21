@@ -1,6 +1,6 @@
 [package]
 name = "dinoe-core"
-version = "0.2.0"
+version = "0.2.1"
 edition.workspace = true
 
 [dependencies]
@@ -9,13 +9,16 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 futures-util = "0.3"
-tokio = { workspace = true, features = ["rt-multi-thread", "fs", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "fs", "macros", "sync"] }
+tokio-stream = "0.1"
 tracing = "0.1"
 chrono = "0.4"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { workspace = true }
 toml = "0.8"
 serde_yaml = "0.9"
 md5 = "0.7"
+ring = { workspace = true }
+uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

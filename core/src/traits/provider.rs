@@ -1,6 +1,6 @@
 use crate::traits::ToolSpec;
 use async_trait::async_trait;
-use futures_util::Stream;
+use futures_util::stream::BoxStream;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,18 +95,26 @@ pub struct ChatRequest<'a> {
 #[derive(Debug, Clone)]
 pub enum ProviderEvent {
     Token(String),
+    Thinking(String),
     ToolCall(ToolCall),
     Done,
 }
 
 #[async_trait]
 pub trait Provider: Send + Sync {
-    async fn chat(&self, request: ChatRequest<'_>) -> anyhow::Result<ChatResponse>;
+    async fn chat(
+        &self,
+        request: ChatRequest<'_>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ChatResponse>;
 
     async fn chat_stream(
         &self,
         request: ChatRequest<'_>,
-    ) -> anyhow::Result<Box<dyn Stream<Item = ProviderEvent> + Send>>;
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<BoxStream<'static, ProviderEvent>>;
 
     fn supports_streaming(&self) -> bool {
         true

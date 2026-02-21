@@ -34,7 +34,7 @@ pub struct ToolSpec {
 }
 
 #[async_trait]
-pub trait Tool: Send + Sync {
+pub trait Tool: Send + Sync + 'static {
     fn name(&self) -> &str;
 
     fn description(&self) -> &str;

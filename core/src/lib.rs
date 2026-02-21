@@ -9,7 +9,7 @@ pub mod traits;
 pub use agent::{AgentLoop, ContextBuilder, ToolRegistry};
 pub use config::*;
 pub use memory::*;
-pub use providers::*;
+pub use providers::create_provider;
 pub use skills::*;
 pub use tools::*;
 pub use traits::*;
