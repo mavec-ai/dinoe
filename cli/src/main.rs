@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use dinoe_core::{
     agent, config,
     providers,
-    tools::{FileReadTool, FileWriteTool, MemoryReadTool, MemoryWriteTool, ShellTool},
+    tools::{ContentSearchTool, FileEditTool, FileReadTool, FileWriteTool, GitOperationsTool, GlobSearchTool, HttpRequestTool, MemoryReadTool, MemoryWriteTool, ShellTool, WebFetchTool},
 };
 mod onboard;
 mod skills;
@@ -91,6 +91,12 @@ async fn main() -> Result<()> {
             tool_registry.register(Box::new(ShellTool::new(&config.workspace_dir)));
             tool_registry.register(Box::new(MemoryReadTool::new(memory.clone())));
             tool_registry.register(Box::new(MemoryWriteTool::new(memory.clone())));
+            tool_registry.register(Box::new(WebFetchTool::new()));
+            tool_registry.register(Box::new(HttpRequestTool::new()));
+            tool_registry.register(Box::new(GlobSearchTool::new(&config.workspace_dir)));
+            tool_registry.register(Box::new(ContentSearchTool::new(&config.workspace_dir)));
+            tool_registry.register(Box::new(FileEditTool::new(&config.workspace_dir)));
+            tool_registry.register(Box::new(GitOperationsTool::new(&config.workspace_dir)));
 
             let tool_specs = tool_registry.get_specs();
 

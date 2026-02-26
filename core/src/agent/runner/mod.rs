@@ -18,7 +18,7 @@ use crate::agent::{ContextBuilder, ToolRegistry};
 use crate::skills::Skill;
 use crate::traits::{ChatMessage, MemoryCategory, Provider, ToolCall};
 
-use detection::detect_tool_loop;
+use detection::{detect_tool_loop, deduplicate_tool_calls};
 use execution::ToolExecutor;
 use history::HistoryManager;
 use parsing::parse_tool_calls_fallback;
@@ -206,6 +206,14 @@ impl AgentLoop {
                 anyhow::bail!("{}", loop_msg);
             }
 
+            let (tool_calls, duplicates) = deduplicate_tool_calls(&tool_calls);
+            for (name, _id) in &duplicates {
+                println!(
+                    "\x1b[33m⚠ Skipped duplicate tool call '{}' with identical arguments\x1b[0m",
+                    name
+                );
+            }
+
             messages.push(ChatMessage::assistant_with_tool_calls(
                 full_response.clone(),
                 tool_calls.clone(),
@@ -308,6 +316,14 @@ impl AgentLoop {
             if let Some(loop_msg) = detect_tool_loop(&mut recent_tool_calls, &tool_calls) {
                 println!("\x1b[33m⚠ {}\x1b[0m", loop_msg);
                 anyhow::bail!("{}", loop_msg);
+            }
+
+            let (tool_calls, duplicates) = deduplicate_tool_calls(&tool_calls);
+            for (name, _id) in &duplicates {
+                println!(
+                    "\x1b[33m⚠ Skipped duplicate tool call '{}' with identical arguments\x1b[0m",
+                    name
+                );
             }
 
             messages.push(ChatMessage::assistant_with_tool_calls(

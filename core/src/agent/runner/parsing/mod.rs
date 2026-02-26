@@ -3,6 +3,7 @@ mod normalize;
 mod formats;
 
 use crate::traits::ToolCall;
+pub use helpers::map_tool_name_alias;
 use helpers::{extract_json_values, find_first_tag, matching_tool_call_close_tag};
 use formats::{
     parse_tool_call_from_json, parse_xml_tool_calls, parse_glm_shortened_body,

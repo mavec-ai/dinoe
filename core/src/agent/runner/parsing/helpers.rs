@@ -36,8 +36,14 @@ pub fn map_tool_name_alias(tool_name: &str) -> &str {
         "shell" | "bash" | "sh" | "exec" | "command" | "cmd" => "shell",
         "fileread" | "file_read" | "readfile" | "read_file" | "file" => "file_read",
         "filewrite" | "file_write" | "writefile" | "write_file" => "file_write",
+        "fileedit" | "file_edit" | "editfile" | "edit_file" => "file_edit",
         "memoryrecall" | "memory_recall" | "recall" | "memrecall" => "memory_read",
         "memorystore" | "memory_store" | "store" | "memstore" => "memory_write",
+        "globsearch" | "glob_search" | "glob" | "findfiles" | "find_files" => "glob_search",
+        "contentsearch" | "content_search" | "grep" | "search" => "content_search",
+        "httprequest" | "http_request" | "http" | "fetch" | "curl" | "wget" => "http_request",
+        "webfetch" | "web_fetch" | "fetchurl" | "fetch_url" => "web_fetch",
+        "gitoperations" | "git_operations" | "git" => "git_operations",
         _ => tool_name,
     }
 }

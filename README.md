@@ -4,17 +4,17 @@ Fast, ultra-lightweight CLI AI agent with tool execution, skills, and multi-prov
 
 ## Features
 
-- **Ultra-fast** - Starts in ~4ms
-- **Tiny binary** - Only 2.2MB
+- **Ultra-fast** - Sub-second startup
+- **Tiny binary** - Only 2.3MB
 - **Memory-safe** - Built with Rust
 - **Multi-provider** - OpenAI, OpenRouter, Ollama, Z.AI (GLM)
 - **Streaming** - Real-time response streaming
 - **Smart loop detection** - Prevents infinite tool loops
-- **Tool execution** - File operations, shell commands, memory management
+- **Tool execution** - File ops, search, shell, git, web fetch, memory
 - **Skills system** - Extensible with custom skills
 - **Daily logs** - Automatic daily memory tracking in Markdown
 - **Zero config** - Simple 5-step onboarding wizard
-- **Security layer** - Path validation, command risk classification, rate limiting
+- **Security layer** - Path validation, symlink protection, rate limiting, SSRF prevention
 
 ## Installation
 
@@ -126,7 +126,13 @@ enabled = true
 |------|-------------|
 | `file_read` | Read file contents |
 | `file_write` | Write or create files |
+| `file_edit` | Search and replace in files |
+| `glob_search` | Find files by pattern |
+| `content_search` | Search content with regex |
 | `shell` | Execute shell commands |
+| `git_operations` | Git commands (status, diff, log) |
+| `web_fetch` | Fetch web content as markdown |
+| `http_request` | HTTP API calls (GET, POST, etc) |
 | `memory_read` | Search memory by keyword |
 | `memory_write` | Store information to memory |
 
@@ -154,10 +160,11 @@ dinoe/
 | Metric | Value |
 |--------|-------|
 | Binary size | 2.3 MB |
-| Cold start | ~5 ms |
-| Peak memory | ~1.9 MB |
+| Cold start | ~500 ms |
+| Peak memory | ~2 MB |
 | Architecture | arm64 / x86_64 |
+| Code size | 8,625 lines Rust |
 
 ## License
 
-MIT License
+[MIT License](LICENSE)

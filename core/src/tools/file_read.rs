@@ -1,17 +1,28 @@
 use crate::tools::extract_string_arg;
-use crate::tools::security::validate_workspace_path;
+use crate::tools::security::{validate_workspace_path, RateLimiter};
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
+use std::sync::{Arc, OnceLock};
+
+const RATE_LIMIT_MAX: u64 = 60;
+const RATE_LIMIT_WINDOW_SECS: u64 = 3600;
+
+static GLOBAL_RATE_LIMITER: OnceLock<Arc<RateLimiter>> = OnceLock::new();
 
 pub struct FileReadTool {
     workspace: std::path::PathBuf,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl FileReadTool {
     pub fn new(workspace: impl AsRef<std::path::Path>) -> Self {
+        let rate_limiter = GLOBAL_RATE_LIMITER
+            .get_or_init(|| Arc::new(RateLimiter::new(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SECS)))
+            .clone();
         Self {
             workspace: workspace.as_ref().to_path_buf(),
+            rate_limiter,
         }
     }
 }
@@ -40,6 +51,12 @@ impl Tool for FileReadTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        if !self.rate_limiter.check_and_record() {
+            return Ok(ToolResult::error(
+                "Rate limit exceeded: too many file reads. Please wait a moment.",
+            ));
+        }
+
         let path = extract_string_arg(&args, "path")?;
 
         let full_path = match validate_workspace_path(&path, &self.workspace) {
