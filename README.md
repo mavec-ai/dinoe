@@ -14,6 +14,7 @@ Fast, ultra-lightweight CLI AI agent with tool execution, skills, and multi-prov
 - **Skills system** - Extensible with custom skills
 - **Daily logs** - Automatic daily memory tracking in Markdown
 - **Zero config** - Simple 5-step onboarding wizard
+- **Security layer** - Path validation, command risk classification, rate limiting
 
 ## Installation
 
@@ -85,22 +86,6 @@ mkdir -p ~/.dinoe/workspace/skills/my-skill
 echo '# My Skill' > ~/.dinoe/workspace/skills/my-skill/SKILL.md
 ```
 
-## Creating Skills
-
-Create a skill directory with a `SKILL.md` file:
-
-```bash
-mkdir -p ~/.dinoe/workspace/skills/code-reviewer
-cat > ~/.dinoe/workspace/skills/code-reviewer/SKILL.md << 'EOF'
-# Code Reviewer
-
-You are a code reviewer. When asked to review code:
-- Check for bugs and edge cases
-- Suggest improvements
-- Follow best practices
-EOF
-```
-
 ## Configuration
 
 Config stored at `~/.dinoe/config.toml`:
@@ -112,6 +97,7 @@ model = "gpt-4o"
 max_iterations = 20
 max_history = 50
 temperature = 1.0
+parallel_tools = true
 
 [stream]
 enabled = true
@@ -121,15 +107,15 @@ enabled = true
 
 ```
 ~/.dinoe/
-├── config.toml          # Configuration
+├── config.toml             # Configuration
 └── workspace/
-    ├── SOUL.md          # Agent personality
-    ├── TOOLS.md         # Tool usage guidelines
-    ├── USER.md          # User preferences
-    ├── memory/          # Memory & logs
-    │   ├── MEMORY.md    # Long-term memory
-    │   └── 2025-02-22.md
-    └── skills/          # Custom skills
+    ├── SOUL.md             # Agent personality
+    ├── TOOLS.md            # Tool usage guidelines
+    ├── USER.md             # User preferences
+    ├── memory/             # Memory & logs
+    │   ├── MEMORY.md       # Long-term memory
+    │   └── 2025-02-22.md   # Short-term memory
+    └── skills/             # Custom skills
         └── my-skill/
             └── SKILL.md
 ```
@@ -167,9 +153,9 @@ dinoe/
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 2.2 MB |
-| Cold start | ~4 ms |
-| Peak memory | ~2 MB |
+| Binary size | 2.3 MB |
+| Cold start | ~5 ms |
+| Peak memory | ~1.9 MB |
 | Architecture | arm64 / x86_64 |
 
 ## License

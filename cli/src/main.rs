@@ -104,7 +104,8 @@ async fn main() -> Result<()> {
                     .with_max_iterations(config.max_iterations)
                     .with_max_history(config.max_history)
                     .with_model_name(config.model.clone())
-                    .with_temperature(config.temperature);
+                    .with_temperature(config.temperature)
+                    .with_parallel_tools(config.parallel_tools);
 
             let agent_loop = Arc::new(agent_loop);
 

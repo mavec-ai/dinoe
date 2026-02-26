@@ -1,6 +1,6 @@
 [package]
 name = "dinoe-cli"
-version = "0.2.1"
+version.workspace = true
 edition.workspace = true
 
 [[bin]]

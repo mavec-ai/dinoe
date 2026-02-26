@@ -26,6 +26,7 @@ pub struct Config {
     pub max_iterations: usize,
     pub max_history: usize,
     pub temperature: f64,
+    pub parallel_tools: bool,
     #[serde(default)]
     pub stream: StreamConfig,
     #[serde(skip)]
@@ -42,6 +43,7 @@ impl Default for Config {
             max_iterations: 20,
             max_history: 50,
             temperature: 1.0,
+            parallel_tools: true,
             stream: StreamConfig::default(),
             workspace_dir: get_dinoe_dir().join("workspace"),
         }

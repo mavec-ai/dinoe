@@ -1,4 +1,5 @@
 use crate::tools::extract_string_arg;
+use crate::tools::security::validate_workspace_path;
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
@@ -45,7 +46,11 @@ impl Tool for FileWriteTool {
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let path = extract_string_arg(&args, "path")?;
         let content = extract_string_arg(&args, "content")?;
-        let full_path = self.workspace.join(&path);
+
+        let full_path = match validate_workspace_path(&path, &self.workspace) {
+            Ok(p) => p,
+            Err(e) => return Ok(ToolResult::error(e)),
+        };
 
         if let Some(parent) = full_path.parent() {
             std::fs::create_dir_all(parent)?;

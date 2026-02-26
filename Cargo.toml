@@ -3,6 +3,7 @@ resolver = "3"
 members = ["cli", "core"]
 
 [workspace.package]
+version = "0.2.2"
 edition = "2024"
 
 [workspace.dependencies]

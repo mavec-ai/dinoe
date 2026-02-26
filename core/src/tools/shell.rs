@@ -1,17 +1,26 @@
 use crate::tools::extract_string_arg;
+use crate::tools::security::{validate_command, RateLimiter};
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
 use std::process::Command;
+use std::sync::{Arc, OnceLock};
+
+static GLOBAL_RATE_LIMITER: OnceLock<Arc<RateLimiter>> = OnceLock::new();
 
 pub struct ShellTool {
     workspace: std::path::PathBuf,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl ShellTool {
     pub fn new(workspace: impl AsRef<std::path::Path>) -> Self {
+        let rate_limiter = GLOBAL_RATE_LIMITER
+            .get_or_init(|| Arc::new(RateLimiter::default()))
+            .clone();
         Self {
             workspace: workspace.as_ref().to_path_buf(),
+            rate_limiter,
         }
     }
 }
@@ -41,6 +50,10 @@ impl Tool for ShellTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let command = extract_string_arg(&args, "command")?;
+
+        if let Err(e) = validate_command(&command, &self.rate_limiter) {
+            return Ok(ToolResult::error(e));
+        }
 
         let output = Command::new("sh")
             .arg("-c")

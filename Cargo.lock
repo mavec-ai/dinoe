@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "dinoe-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "dinoe-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-trait",

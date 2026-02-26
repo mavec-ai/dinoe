@@ -4,6 +4,7 @@ pub mod file_read;
 pub mod file_write;
 pub mod memory_read;
 pub mod memory_write;
+pub mod security;
 pub mod shell;
 
 pub use file_read::FileReadTool;
