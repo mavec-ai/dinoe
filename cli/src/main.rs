@@ -6,10 +6,11 @@ use dinoe_core::{
     tools::{ContentSearchTool, FileEditTool, FileReadTool, FileWriteTool, GitOperationsTool, GlobSearchTool, HttpRequestTool, MemoryReadTool, MemoryWriteTool, ShellTool, WebFetchTool},
 };
 mod onboard;
+mod repl;
 mod skills;
 mod templates;
-use std::io::Write;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 #[derive(Parser)]
 #[command(name = "dinoe")]
@@ -115,78 +116,63 @@ async fn main() -> Result<()> {
 
             let agent_loop = Arc::new(agent_loop);
 
-            let stream_enabled = config.stream.enabled;
-
             if let Some(msg) = message {
-                println!("\n🤔 Processing...\n");
-                if stream_enabled {
-                    match agent_loop.process_stream(&msg).await {
-                        Ok(_) => {}
-                        Err(e) => {
-                            eprintln!("❌ Error: {}", e);
-                            anyhow::bail!("Agent processing failed: {}", e);
-                        }
-                    }
-                } else {
-                    match agent_loop.process(&msg).await {
-                        Ok(response) => {
-                            println!("{}", response);
-                        }
-                        Err(e) => {
-                            eprintln!("❌ Error: {}", e);
-                            anyhow::bail!("Agent processing failed: {}", e);
-                        }
-                    }
+                println!();
+                let printer = agent::StatusPrinter::new();
+                let (status_tx, mut status_rx) = mpsc::channel::<agent::StatusUpdate>(64);
+                let agent = agent_loop.clone();
+                let msg = msg.clone();
+                let handle = tokio::spawn(async move {
+                    agent.process_with_status(&msg, Some(status_tx)).await
+                });
+
+                while let Some(status) = status_rx.recv().await {
+                    printer.print(&status);
                 }
+
+                let result = handle.await??;
+                let width = crossterm::terminal::size()
+                    .map(|(w, _)| w as usize)
+                    .unwrap_or(80);
+                let sep_width = width.min(80);
+                eprintln!("\x1b[90m{}\x1b[0m", "\u{2500}".repeat(sep_width));
+                repl::print_markdown(&result);
             } else {
-                println!("🦖 Dinoe");
-                println!("Type your message (Ctrl+D to exit):\n");
-                use std::io::{self, BufRead};
-                let stdin = io::stdin();
-                let stdout = io::stdout();
-                let mut stdout_lock = stdout.lock();
+                let mut handle = repl::start();
 
                 loop {
-                    print!("> ");
-                    let _ = stdout_lock.flush();
-
-                    let mut input = String::new();
-                    let mut reader = stdin.lock();
-
-                    match reader.read_line(&mut input) {
-                        Ok(0) => {
-                            println!("\n👋 Goodbye!");
-                            break;
-                        }
-                        Ok(_) => {
-                            let input = input.trim();
-                            if input.is_empty() {
-                                continue;
-                            }
-
-                            println!("\n🤔 Processing...\n");
-
-                            if stream_enabled {
-                                match agent_loop.process_stream(input).await {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        eprintln!("❌ Error: {}", e);
-                                    }
-                                }
-                            } else {
-                                match agent_loop.process(input).await {
-                                    Ok(response) => {
-                                        println!("{}", response);
-                                    }
-                                    Err(e) => {
-                                        eprintln!("❌ Error: {}", e);
-                                    }
-                                }
-                            }
-
+                    match handle.recv().await {
+                        Some(repl::ReplCommand::Input(input)) => {
                             println!();
+                            let printer = agent::StatusPrinter::new();
+                            let (status_tx, mut status_rx) = mpsc::channel::<agent::StatusUpdate>(64);
+                            let agent = agent_loop.clone();
+                            let input_clone = input.clone();
+                            let process_handle = tokio::spawn(async move {
+                                agent.process_with_status(&input_clone, Some(status_tx)).await
+                            });
+
+                            while let Some(status) = status_rx.recv().await {
+                                printer.print(&status);
+                            }
+
+                            match process_handle.await? {
+                                Ok(response) => {
+                                    let width = crossterm::terminal::size()
+                                        .map(|(w, _)| w as usize)
+                                        .unwrap_or(80);
+                                    let sep_width = width.min(80);
+                                    eprintln!("\x1b[90m{}\x1b[0m", "\u{2500}".repeat(sep_width));
+                                    repl::print_markdown(&response);
+                                }
+                                Err(e) => {
+                                    eprintln!("❌ Error: {}", e);
+                                }
+                            }
+                            println!();
+                            handle.signal_done().await;
                         }
-                        Err(_) => {
+                        Some(repl::ReplCommand::Quit) | None => {
                             println!("\n👋 Goodbye!");
                             break;
                         }

@@ -5,10 +5,9 @@ Fast, ultra-lightweight CLI AI agent with tool execution, skills, and multi-prov
 ## Features
 
 - **Ultra-fast** - Sub-second startup
-- **Tiny binary** - Only 2.3MB
+- **Tiny binary** - Only 2.5MB
 - **Memory-safe** - Built with Rust
 - **Multi-provider** - OpenAI, OpenRouter, Ollama, Z.AI (GLM)
-- **Streaming** - Real-time response streaming
 - **Smart loop detection** - Prevents infinite tool loops
 - **Tool execution** - File ops, search, shell, git, web fetch, memory
 - **Skills system** - Extensible with custom skills
@@ -62,7 +61,7 @@ dinoe onboard
 dinoe chat
 ```
 
-Type messages and press Enter. Press Ctrl+D to exit.
+Type messages and press Enter.
 
 ### Single Message
 
@@ -98,9 +97,6 @@ max_iterations = 20
 max_history = 50
 temperature = 1.0
 parallel_tools = true
-
-[stream]
-enabled = true
 ```
 
 ## Workspace Structure
@@ -151,6 +147,7 @@ dinoe/
 └── cli/
     ├── main.rs      # Entry point
     ├── onboard.rs   # Onboarding wizard
+    ├── repl.rs      # Interactive REPL
     ├── skills.rs    # Skills CLI
     └── templates.rs # Default templates
 ```
@@ -159,11 +156,10 @@ dinoe/
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 2.3 MB |
-| Cold start | ~500 ms |
+| Binary size | 2.5 MB |
+| Cold start | ~10 ms |
 | Peak memory | ~2 MB |
 | Architecture | arm64 / x86_64 |
-| Code size | 8,625 lines Rust |
 
 ## License
 

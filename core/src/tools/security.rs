@@ -189,7 +189,7 @@ pub fn validate_command(command: &str, rate_limiter: &RateLimiter) -> Result<(),
             ))
         }
         CommandRisk::Medium => {
-            Ok(())
+            Err("Network commands are blocked for security. Use http_request tool instead.".to_string())
         }
         CommandRisk::Low => Ok(()),
     }

@@ -1,28 +1,20 @@
-use crate::tools::extract_string_arg;
-use crate::tools::security::{validate_workspace_path, RateLimiter};
+use crate::tools::{extract_string_arg, get_global_rate_limiter};
+use crate::tools::security::validate_workspace_path;
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
-use std::sync::{Arc, OnceLock};
-
-const RATE_LIMIT_MAX: u64 = 60;
-const RATE_LIMIT_WINDOW_SECS: u64 = 3600;
-
-static GLOBAL_RATE_LIMITER: OnceLock<Arc<RateLimiter>> = OnceLock::new();
+use tokio::fs;
 
 pub struct FileWriteTool {
     workspace: std::path::PathBuf,
-    rate_limiter: Arc<RateLimiter>,
+    rate_limiter: std::sync::Arc<crate::tools::security::RateLimiter>,
 }
 
 impl FileWriteTool {
     pub fn new(workspace: impl AsRef<std::path::Path>) -> Self {
-        let rate_limiter = GLOBAL_RATE_LIMITER
-            .get_or_init(|| Arc::new(RateLimiter::new(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_SECS)))
-            .clone();
         Self {
             workspace: workspace.as_ref().to_path_buf(),
-            rate_limiter,
+            rate_limiter: get_global_rate_limiter(),
         }
     }
 }
@@ -70,10 +62,10 @@ impl Tool for FileWriteTool {
         };
 
         if let Some(parent) = full_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).await?;
         }
 
-        match std::fs::write(&full_path, content) {
+        match fs::write(&full_path, content).await {
             Ok(_) => Ok(ToolResult::success("File written successfully")),
             Err(e) => Ok(ToolResult::error(format!("Failed to write file: {}", e))),
         }

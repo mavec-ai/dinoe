@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::sync::{Arc, OnceLock};
 
 pub mod content_search;
 pub mod file_edit;
@@ -12,6 +13,16 @@ pub mod memory_write;
 pub mod security;
 pub mod shell;
 pub mod web_fetch;
+
+use security::RateLimiter;
+
+static GLOBAL_RATE_LIMITER: OnceLock<Arc<RateLimiter>> = OnceLock::new();
+
+pub fn get_global_rate_limiter() -> Arc<RateLimiter> {
+    GLOBAL_RATE_LIMITER
+        .get_or_init(|| Arc::new(RateLimiter::default()))
+        .clone()
+}
 
 pub use content_search::ContentSearchTool;
 pub use file_edit::FileEditTool;

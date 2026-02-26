@@ -1,26 +1,20 @@
-use crate::tools::extract_string_arg;
-use crate::tools::security::{validate_command, RateLimiter};
+use crate::tools::{extract_string_arg, get_global_rate_limiter};
+use crate::tools::security::validate_command;
 use crate::traits::{Tool, ToolResult};
 use async_trait::async_trait;
 use serde_json::json;
-use std::process::Command;
-use std::sync::{Arc, OnceLock};
-
-static GLOBAL_RATE_LIMITER: OnceLock<Arc<RateLimiter>> = OnceLock::new();
+use tokio::process::Command;
 
 pub struct ShellTool {
     workspace: std::path::PathBuf,
-    rate_limiter: Arc<RateLimiter>,
+    rate_limiter: std::sync::Arc<crate::tools::security::RateLimiter>,
 }
 
 impl ShellTool {
     pub fn new(workspace: impl AsRef<std::path::Path>) -> Self {
-        let rate_limiter = GLOBAL_RATE_LIMITER
-            .get_or_init(|| Arc::new(RateLimiter::default()))
-            .clone();
         Self {
             workspace: workspace.as_ref().to_path_buf(),
-            rate_limiter,
+            rate_limiter: get_global_rate_limiter(),
         }
     }
 }
@@ -59,7 +53,8 @@ impl Tool for ShellTool {
             .arg("-c")
             .arg(&command)
             .current_dir(&self.workspace)
-            .output();
+            .output()
+            .await;
 
         match output {
             Ok(output) => {

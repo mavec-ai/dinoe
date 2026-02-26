@@ -4,18 +4,6 @@ use std::path::PathBuf;
 
 const DINOE_DIR: &str = ".dinoe";
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct StreamConfig {
-    pub enabled: bool,
-}
-
-impl Default for StreamConfig {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -27,8 +15,6 @@ pub struct Config {
     pub max_history: usize,
     pub temperature: f64,
     pub parallel_tools: bool,
-    #[serde(default)]
-    pub stream: StreamConfig,
     #[serde(skip)]
     pub workspace_dir: PathBuf,
 }
@@ -44,7 +30,6 @@ impl Default for Config {
             max_history: 50,
             temperature: 1.0,
             parallel_tools: true,
-            stream: StreamConfig::default(),
             workspace_dir: get_dinoe_dir().join("workspace"),
         }
     }
